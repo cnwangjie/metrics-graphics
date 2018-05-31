@@ -3,9 +3,19 @@ language: node_js
 node_js:
   - "8"
 addons:
-    chrome: stable
+  chrome: stable
 before_script:
-    - "sudo chown root /opt/google/chrome/chrome-sandbox"
-    - "sudo chmod 4755 /opt/google/chrome/chrome-sandbox"
+  - "sudo chown root /opt/google/chrome/chrome-sandbox"
+  - "sudo chmod 4755 /opt/google/chrome/chrome-sandbox"
 script: npm run test-ci
 
+before_deploy:
+  - cp dist/metricsgraphics.css examples
+  - cp -r src/js examples
+deploy:
+  provider: pages
+  skip-cleanup: true
+  github-token: $GITHUB_TOKEN
+  local-dir: examples
+  on:
+    branch: master
