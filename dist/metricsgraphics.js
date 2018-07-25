@@ -780,7 +780,8 @@ MG.data_graphic = function (args) {
     showActivePoint: true, // If enabled show active data point information in chart
     brush: null, // add brushing function for this chart. could be set as 'xy', 'x', 'y' to restrict axis
     zoom_target: null, // zooming target of brushing function. if not set the default is to zoom the current chart
-    brushing_selection_changed: null // callback function on brushing. the first parameter are the arguments that correspond to this chart, the second parameter is the range of the selection
+    brushing_selection_changed: null, // callback function on brushing. the first parameter are the arguments that correspond to this chart, the second parameter is the range of the selection
+    click_to_zoom_out: true // if true and the graph is currently zoomed in, clicking on the graph will zoom out
   };
 
   MG.call_hook('global.defaults', defaults);
@@ -3609,7 +3610,7 @@ function mg_setup_mouseover_container(svg, args) {
 
   var mouseover_x = args.mouseover_align === 'right' ? mg_get_plot_right(args) : args.mouseover_align === 'left' ? mg_get_plot_left(args) : (args.width - args.left - args.right) / 2 + args.left;
 
-  var active_datapoint = svg.select('.mg-active-datapoint-container').append('text').attr('class', 'mg-active-datapoint').attr('xml:space', 'preserve').attr('text-anchor', text_anchor);
+  var active_datapoint = svg.select('.mg-active-datapoint-container').attr('transform', 'translate(0 -18)').append('text').attr('class', 'mg-active-datapoint').attr('xml:space', 'preserve').attr('text-anchor', text_anchor);
 
   // set the rollover text's position; if we have markers on two lines,
   // nudge up the rollover text a bit
@@ -3840,12 +3841,12 @@ function mg_mouseover_text(args, rargs) {
         isDragging = false;
         if (target === args) {
           MG.zoom_to_data_range(target, range);
-          svg.select('.mg-rollover-rect, .mg-voronoi').classed('mg-brushed', true);
+          if (args.click_to_zoom_out) svg.select('.mg-rollover-rect, .mg-voronoi').classed('mg-brushed', true);
         } else {
           var domain = MG.convert_range_to_domain(args, range);
           MG.zoom_to_data_domain(target, domain);
         }
-      } else {
+      } else if (args.click_to_zoom_out) {
         MG.zoom_to_raw_range(target);
       }
       if (mg_is_function(args.brushing_selection_changed)) args.brushing_selection_changed(args, range);
@@ -4803,10 +4804,11 @@ MG.button_layout = function (target) {
         });
       }
 
+      var existing_line = svg.select('path.mg-main-line.mg-line' + line_id);
       if (this_data.length === 0) {
+        existing_line.remove();
         continue;
       }
-      var existing_line = svg.select('path.mg-main-line.mg-line' + line_id);
 
       mg_add_confidence_band(args, plot, svg, line_id);
 
@@ -5519,18 +5521,31 @@ function mg_color_point_mouseover(_ref35, elem, d) {
         return args.scalefns.youtf(d);
       });
 
-      //are we coloring our points, or just using the default color?
-      if (args.color_accessor !== null) {
-        pts.attr('fill', args.scalefns.colorf);
-        pts.attr('stroke', args.scalefns.colorf);
-      } else {
-        pts.classed('mg-points-mono', true);
+      var highlights = void 0;
+      svg.selectAll('.mg-highlight').remove();
+      if (args.highlight && mg_is_function(args.highlight)) {
+        highlights = svg.append('g').classed('mg-highlight', true).selectAll('circle').data(data.filter(args.highlight)).enter().append('circle').attr('cx', args.scalefns.xoutf).attr('cy', function (d) {
+          return args.scalefns.youtf(d);
+        });
       }
 
-      if (args.size_accessor !== null) {
-        pts.attr('r', args.scalefns.sizef);
+      var elements = [pts].concat(highlights ? [highlights] : []);
+      //are we coloring our points, or just using the default color?
+      if (args.color_accessor !== null) {
+        elements.forEach(function (e) {
+          return e.attr('fill', args.scalefns.colorf).attr('stroke', args.scalefns.colorf);
+        });
       } else {
-        pts.attr('r', args.point_size);
+        elements.forEach(function (e) {
+          return e.classed('mg-points-mono', true);
+        });
+      }
+
+      pts.attr('r', args.size_accessor !== null ? args.scalefns.sizef : args.point_size);
+      if (highlights) {
+        highlights.attr('r', args.size_accessor !== null ? function (d, i) {
+          return args.scalefns.sizef(d, i) + 2;
+        } : args.point_size + 2);
       }
 
       return this;
@@ -5555,13 +5570,21 @@ function mg_color_point_mouseover(_ref35, elem, d) {
         return d == null ? null : 'M' + d.join(',') + 'Z';
       }).attr('class', function (d, i) {
         return 'path-' + i;
-      }).style('fill-opacity', 0).on('mouseover', this.rolloverOn(args)).on('mouseout', this.rolloverOff(args)).on('mousemove', this.rolloverMove(args));
+      }).style('fill-opacity', 0).on('click', this.rolloverClick(args)).on('mouseover', this.rolloverOn(args)).on('mouseout', this.rolloverOff(args)).on('mousemove', this.rolloverMove(args));
 
       if (args.data[0].length === 1) {
         point_mouseover(args, svg, args.data[0][0]);
       }
 
       return this;
+    };
+
+    this.rolloverClick = function (args) {
+      return function (d, i) {
+        if (args.click) {
+          args.click(d, i);
+        }
+      };
     };
 
     this.rolloverOn = function (args) {
@@ -5674,7 +5697,8 @@ function mg_color_point_mouseover(_ref35, elem, d) {
     size_domain: null,
     color_domain: null,
     active_point_size_increase: 1,
-    color_type: 'number' // can be either 'number' - the color scale is quantitative - or 'category' - the color scale is qualitative.
+    color_type: 'number', // can be either 'number' - the color scale is quantitative - or 'category' - the color scale is qualitative.
+    highlight: null // if this callback function returns true, the selected point will be highlighted
   };
 
   MG.register('point', pointChart, _defaults2);
